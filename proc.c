@@ -10,6 +10,8 @@
 struct {
   struct spinlock lock;
   struct proc proc[NPROC];
+  int mlfq[4];
+  int moq;
 } ptable;
 
 static struct proc *initproc;
@@ -18,7 +20,7 @@ int nextpid = 1;
 extern void forkret(void);
 extern void trapret(void);
 
-static void wakeup1(void *chan);
+void wakeup1(void *chan);
 
 void
 pinit(void)
@@ -65,8 +67,6 @@ myproc(void) {
   return p;
 }
 
-//PAGEBREAK: 32
-// Look in the process table for an UNUSED proc.
 // If found, change state to EMBRYO and initialize
 // state required to run in the kernel.
 // Otherwise return 0.
@@ -88,7 +88,7 @@ allocproc(void)
 found:
   p->state = EMBRYO;
   p->pid = nextpid++;
-
+  
   release(&ptable.lock);
 
   // Allocate kernel stack.
@@ -311,6 +311,78 @@ wait(void)
   }
 }
 
+void
+excute_scheduler(struct proc *p) {
+    struct cpu *c = mycpu();
+
+    // Switch to chosen process.  It is the process's job
+    // to release ptable.lock and then reacquire it
+    // before jumping back to us.
+    c->proc = p;
+    switchuvm(p);
+    p->state = RUNNING;
+
+    swtch(&(c->scheduler), p->context);
+    switchkvm();
+
+    // Process is done running for now.
+    // It should have changed its p->state before coming back.
+    c->proc = 0;
+}
+
+
+int setmonopoly(int pid, int password) {
+    if (password == 2018015932)
+    {
+	struct proc *p;
+        acquire(&ptable.lock);
+        for (p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
+            if (p->pid==pid){
+                if (p->moq==0){
+                    p->moq = 1;
+                    if (p->state==RUNNABLE){
+                        ptable.mlfq[p->q_lev]--;
+                        ptable.moq++;
+                    }
+                }
+            }
+            release(&ptable.lock);
+            return ptable.moq;
+        }
+        release(&ptable.lock);
+        return -1;
+    }
+    release(&ptable.lock);
+    return -2;
+}
+
+int sys_setmonopoly(int pid, int password){
+    setmonopoly(pid, password);
+    return 0;
+}
+
+int moq = 0;
+
+void monopolize(void)
+{
+   moq = 1;
+}
+
+int sys_monopolize(void) {
+    monopolize();
+    return 0;
+}
+
+void unmonopolize(void)
+{   
+   moq = 0;
+}
+
+int sys_unmonopolize(void) {
+    unmonopolize();
+    return 0;
+}
+
 //PAGEBREAK: 42
 // Per-CPU process scheduler.
 // Each CPU calls scheduler() after setting itself up.
@@ -319,12 +391,17 @@ wait(void)
 //  - swtch to start running that process
 //  - eventually that process transfers control
 //      via swtch back to the scheduler.
+
+int moq_state = 0;
+
 void
 scheduler(void)
 {
   struct proc *p;
   struct cpu *c = mycpu();
   c->proc = 0;
+
+  int moq_i = 0;
   
   for(;;){
     // Enable interrupts on this processor.
@@ -332,26 +409,87 @@ scheduler(void)
 
     // Loop over process table looking for process to run.
     acquire(&ptable.lock);
+
+    moq_i++;
+
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
       if(p->state != RUNNABLE)
         continue;
+      
+      // MOQ
+      if (moq==1) {
+	  if (moq_state==0) {
+	      moq_state = 1;
+	      moq_i = 0;
+	      break;
+	  }
+	  if (moq_i == 2) {
+	      moq_state = 0;
+	      unmopolize();
+	      break;
+	  }
+          if (p->moq == 1) {
+              excute_scheduler(p);
+	      ptable.moq--;
+	  }
+	  continue;
+      }
 
-      // Switch to chosen process.  It is the process's job
-      // to release ptable.lock and then reacquire it
-      // before jumping back to us.
-      c->proc = p;
-      switchuvm(p);
-      p->state = RUNNING;
+      // MLFQ	  
+      if (p->moq == 1) {
+        continue;
+      }
 
-      swtch(&(c->scheduler), p->context);
-      switchkvm();
-
-      // Process is done running for now.
-      // It should have changed its p->state before coming back.
-      c->proc = 0;
+      else if (ptable.mlfq[0] > 0) {
+	  if (p->q_lev == 0) {
+	      ptable.mlfq[0]--;
+	      excute_scheduler(p);
+	  }
+	  else {
+	      continue;
+	  }
+      }
+      else if (ptable.mlfq[1] > 0) {
+	  if (p->q_lev == 1) {
+	      ptable.mlfq[1]--;
+	      excute_scheduler(p);
+	  }
+	  else {
+	      continue;
+	  }
+      }	   
+      else if (ptable.mlfq[2] > 0) {
+	  if (p->q_lev == 2) {
+	      ptable.mlfq[2]--;
+	      excute_scheduler(p);
+	  }
+	  else {
+	      continue;
+	  }
+      }		      
+      // For L3 queue 
+      else {
+	int tmp_idx;
+        int max_prty = -1;
+        
+        for(int i = 0; i < NPROC; i++){
+            struct proc *tmp_p = &ptable.proc[i];
+	        
+            if(tmp_p->q_lev == 3) {
+		if (tmp_p->prty == 10) {
+		    tmp_idx = i;
+		    break;
+		}
+	        else if (tmp_p->prty > max_prty) {
+		    tmp_idx = i;
+		    max_prty = tmp_p->prty;
+		}
+  	    }
+	}
+	ptable.mlfq[3]--;
+	excute_scheduler(&ptable.proc[tmp_idx]);
     }
     release(&ptable.lock);
-
   }
 }
 
@@ -389,6 +527,60 @@ yield(void)
   myproc()->state = RUNNABLE;
   sched();
   release(&ptable.lock);
+}
+
+int
+sys_yield(void)
+{
+  yield();
+  return 0;
+}
+
+int
+getlev(void)
+{
+  p = myproc();
+  return p -> q_lev;
+}
+
+int
+sys_getlev(void)
+{
+  getlev();
+  return 0;
+}
+
+int
+setpriority(int pid, int priority)
+{
+  if (priority < 0 || priority > 10)
+  {
+      return -2;
+  }
+
+  acquire(&ptable.lock);
+  int i;
+  for (i = 0; i < NPROC; i++) {
+      if (ptable.proc[i].pid == pid){
+	  break;
+      }
+  }
+
+  if (i == NPROC)
+  {
+      release(&ptable.lock);
+      return -1;
+  }
+
+  ptable.proc[i].prty = priority;
+  release(&ptable.lock);
+  return 0;
+}
+
+int sys_setpriority(int pid, int priority)
+{
+    setpriority(pid, priority);
+    return 0;
 }
 
 // A fork child's very first scheduling by scheduler()
@@ -454,7 +646,7 @@ sleep(void *chan, struct spinlock *lk)
 //PAGEBREAK!
 // Wake up all processes sleeping on chan.
 // The ptable lock must be held.
-static void
+void
 wakeup1(void *chan)
 {
   struct proc *p;
@@ -499,24 +691,21 @@ kill(int pid)
 //PAGEBREAK: 36
 // Print a process listing to console.  For debugging.
 // Runs when user types ^P on console.
-// No lock to avoid wedging a stuck machine further.
-void
-procdump(void)
-{
+void procdump(void) {
   static char *states[] = {
-  [UNUSED]    "unused",
-  [EMBRYO]    "embryo",
-  [SLEEPING]  "sleep ",
-  [RUNNABLE]  "runble",
-  [RUNNING]   "run   ",
-  [ZOMBIE]    "zombie"
+    [UNUSED]    "unused",
+    [EMBRYO]    "embryo",
+    [SLEEPING]  "sleep ",
+    [RUNNABLE]  "runble",
+    [RUNNING]   "run   ",
+    [ZOMBIE]    "zombie"
   };
   int i;
   struct proc *p;
   char *state;
   uint pc[10];
 
-  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
     if(p->state == UNUSED)
       continue;
     if(p->state >= 0 && p->state < NELEM(states) && states[p->state])
@@ -524,11 +713,13 @@ procdump(void)
     else
       state = "???";
     cprintf("%d %s %s", p->pid, state, p->name);
-    if(p->state == SLEEPING){
+    if(p->state == SLEEPING) {
       getcallerpcs((uint*)p->context->ebp+2, pc);
-      for(i=0; i<10 && pc[i] != 0; i++)
+      for(i = 0; i < 10 && pc[i] != 0; i++)
         cprintf(" %p", pc[i]);
     }
     cprintf("\n");
   }
 }
+}
+

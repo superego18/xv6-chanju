@@ -14,6 +14,9 @@ extern uint vectors[];  // in vectors.S: array of 256 entry pointers
 struct spinlock tickslock;
 uint ticks;
 
+// For project 02
+extern void push;
+
 void
 tvinit(void)
 {
@@ -22,6 +25,7 @@ tvinit(void)
   for(i = 0; i < 256; i++)
     SETGATE(idt[i], 0, SEG_KCODE<<3, vectors[i], 0);
   SETGATE(idt[T_SYSCALL], 1, SEG_KCODE<<3, vectors[T_SYSCALL], DPL_USER);
+  SETGATE(idt[128], 1, SEG_KCODE<<3, vectors[128], DPL_USER);
 
   initlock(&tickslock, "time");
 }
@@ -46,11 +50,35 @@ trap(struct trapframe *tf)
     return;
   }
 
+  if(tf->trapno == 128){
+      cprintf("user interrupt 128 called!\n");
+      exit();
+  }
+
   switch(tf->trapno){
   case T_IRQ0 + IRQ_TIMER:
     if(cpuid() == 0){
       acquire(&tickslock);
       ticks++;
+
+      acquire(&ptable.lock);
+      if (ticks == 100 && ptable->moq == 0)
+      {
+	  struct proc *p;
+
+	  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
+	      if (p->moq == 0) {
+	      	p->t_qnt = 0;
+		if (p->q_lev != 0) {
+		    if (p->state==RUNNABLE){
+			ptable->mlfq[0]++;
+			ptable->mlfq[p->q_lev]--;
+		    }
+		    p->q_lev = 0;
+		}
+	      }
+	  }
+      }
       wakeup(&ticks);
       release(&tickslock);
     }
@@ -103,9 +131,43 @@ trap(struct trapframe *tf)
   // Force process to give up CPU on clock tick.
   // If interrupts were on while locks held, would need to check nlock.
   if(myproc() && myproc()->state == RUNNING &&
-     tf->trapno == T_IRQ0+IRQ_TIMER)
-    yield();
+     tf->trapno == T_IRQ0+IRQ_TIMER){
+    // cprintf("tick=%d, pid=%d, name=%s\n", ticks, myproc()->pid, myproc()->name);
 
+    // For project 02
+    myproc()->t_qnt++;
+
+    if (myproc()->moq == 0) {
+    	int now_q_lev = myproc()->q_lev;
+    	if (myproc()->t_qnt == now_q_lev*2+2)
+    	{
+	    	acquire(&ptable.lock);
+		if (now_q_lev == 0)
+		{	
+	    		next_q_lev = (myproc()->pid)%2;
+			myproc()->q_lev = next_q_lev;
+			ptable->mlfq[now_q_lev]--;
+			ptable->mlfq[next_q_lev]++;
+		}	
+		else if (now_q_lev == 1 || now_q_lev == 2)
+		{
+	    		next_q_lev = 3;
+			myproc()->q_lev = next_q_lev;
+                        ptable->mlfq[now_q_lev]--;
+                        ptable->mlfq[next_q_lev]++;
+                }
+		else
+		{
+	   	 	if (0 < myproc()->prty <= 10)
+	    		{
+			   myproc()->prty--;
+	    		}	
+		}
+		myproc()->t_qnt = 0;
+		release(&ptable.lock);
+		yield();
+    	}
+    }
   // Check if the process has been killed since we yielded
   if(myproc() && myproc()->killed && (tf->cs&3) == DPL_USER)
     exit();
