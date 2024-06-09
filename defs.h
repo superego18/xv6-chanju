@@ -68,6 +68,12 @@ char*           kalloc(void);
 void            kfree(char*);
 void            kinit1(void*, void*);
 void            kinit2(void*, void*);
+    // for check
+void            print_freelist();
+void            pprinit();
+void            print_ppr_array();
+void            print_saved_freelist();
+void            save_freelist();
 
 // kbd.c
 void            kbdintr(void);
