@@ -10,7 +10,7 @@
 #include "spinlock.h"
 
 #include "stddef.h"
-#include "stdint.h"
+// #include "stdint.h"
 
 void freerange(void *vstart, void *vend);
 extern char end[]; // first address after kernel loaded from ELF file
@@ -206,30 +206,30 @@ int binary_search(struct run *target) {
     return -1;
 }
 
-void incr_refc(uint physical_address) {
-  struct run *pointer = (struct run *)(uintptr_t)physical_address;
-  int idx = binary_search(pointer);
-  if (idx == -1) {
-    return -1;
-  };
-  ref_array[idx] += 1;
-}
+// void incr_refc(uint physical_address) {
+//   struct run *pointer = (struct run *)(uintptr_t)physical_address;
+//   int idx = binary_search(pointer);
+//   if (idx == -1) {
+//     return -1;
+//   };
+//   ref_array[idx] += 1;
+// }
 
-void decr_refc(uint physical_address) {
-  struct run *pointer = (struct run *)(uintptr_t)physical_address;
-  int idx = binary_search(pointer);
-  if (idx == -1) {
-    return -1;
-  };
-  ref_array[idx] -= 1;
-}
+// void decr_refc(uint physical_address) {
+//   struct run *pointer = (struct run *)(uintptr_t)physical_address;
+//   int idx = binary_search(pointer);
+//   if (idx == -1) {
+//     return -1;
+//   };
+//   ref_array[idx] -= 1;
+// }
 
-int get_refc(uint physical_address) {
-  struct run *pointer = (struct run *)(uintptr_t)physical_address;
-  int idx = binary_search(pointer);
-  if (idx == -1) {
-    return -1;
-  };
-  return ref_array[idx];
-}
+// int get_refc(uint physical_address) {
+//   struct run *pointer = (struct run *)(uintptr_t)physical_address;
+//   int idx = binary_search(pointer);
+//   if (idx == -1) {
+//     return -1;
+//   };
+//   return ref_array[idx];
+// }
 

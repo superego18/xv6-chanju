@@ -1,0 +1,35 @@
+터미널1에서
+- make qemu-gdb
+
+터미널2에서
+- gdb kernel
+- (입력) c
+- (입력) target remote localhost:25000
+--> b로 브레이크포인트 걸고, c로 실행 (처음에는 r이나 c 안 먹힘)
+--> (예시) b main.c:37
+
+
+### gdb 사용법 ###
+
+break (b): 중단점(브레이크포인트)을 설정합니다.
+run (r): 프로그램을 실행합니다.
+continue (c): 현재 중단점부터 실행을 계속합니다.
+step (s): 현재 위치에서 한 단계씩 코드를 실행합니다.
+next (n): 현재 함수 내부의 다음 줄로 이동합니다.
+print (p): 변수나 표현식의 값을 출력합니다.
+backtrace (bt): 호출 스택을 출력합니다.
+info (i): 정보를 표시합니다. 예를 들어, 중단점 정보, 변수 정보 등을 확인할 수 있습니다. - subcommand 필요
+    info address -- Describe where symbol SYM is stored.
+    info all-registers -- List of all registers and their contents, for selected stack frame.
+    info args -- All argument variables of current stack frame or those matching REGEXPs.
+    info auto-load -- Print current status of auto-loaded files.
+    info auxv -- Display the inferior's auxiliary vector.
+    info bookmarks -- Status of user-settable bookmarks.
+    info breakpoints, info b -- Status of specified breakpoints (all user-settable breakpoints if no argument).
+    info checkpoints -- IDs of currently known checkpoints.
+    info classes -- All Objective-C classes, or those matching REGEXP.
+    info common -- Print out the values contained in a Fortran COMMON block.
+    info connections -- Target connections in use.
+    info copying -- Conditions for redistributing copies of GDB.
+    info dcache -- Print information on the dcache performance.
+quit (q): GDB를 종료합니다.
